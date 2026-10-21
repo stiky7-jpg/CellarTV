@@ -1,6 +1,6 @@
 {
-  "name": "stremio-pastebin-bridge",
-  "version": "1.0.0",
+  "name": "stremio-pastebin-addon",
+  "version": "1.0.1",
   "description": "Add-on Stremio per lista Pastebin",
   "main": "index.js",
   "scripts": {
