@@ -1,10 +1,9 @@
 const http = require('http');
-const https = require('https');
+const https = https = require('https');
 
 const PASTEBIN_URL = "https://pastebin.com/raw/2H8u433W";
 const PORT = process.env.PORT || 7000;
 
-// Funzione helper per scaricare dati via HTTPS
 function fetchUrl(url) {
     return new Promise((resolve, reject) => {
         https.get(url, (res) => {
@@ -15,7 +14,6 @@ function fetchUrl(url) {
     });
 }
 
-// Scarica la lista da Pastebin
 async function getListaSiti() {
     try {
         const rawData = await fetchUrl(PASTEBIN_URL);
@@ -29,7 +27,6 @@ async function getListaSiti() {
     }
 }
 
-// Ottiene il titolo da Cinemeta
 async function getTitoloDaImdb(type, imdbId) {
     try {
         const cleanId = imdbId.split(":")[0];
@@ -42,38 +39,43 @@ async function getTitoloDaImdb(type, imdbId) {
     }
 }
 
-// Crea il server HTTP che risponde direttamente alle chiamate di Stremio
 const server = http.createServer(async (req, res) => {
-    // Imposta gli header CORS per permettere a Stremio di comunicare col server
+    // Header CORS obbligatori per Stremio
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
 
     const urlPath = req.url.split('?')[0];
 
-    // 1. Risposta al Manifest dell'Add-on
+    // Rotta Manifest
     if (urlPath === '/manifest.json') {
         const manifest = {
-            id: "org.francesco.listapastebin",
-            version: "1.0.2",
-            name: "Mia Lista Automatica (Pastebin)",
-            description: "Add-on nativo per lista Pastebin",
+            id: "org.francesco.cellartv",
+            version: "1.0.3",
+            name: "CellarTV Lista Auto",
+            description: "Add-on Stremio per lista Pastebin",
             resources: ["stream"],
             types: ["movie", "series"],
             idPrefixes: ["tt"],
             catalogs: []
         };
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(manifest));
         return;
     }
 
-    // 2. Risposta alle richieste di Stream
+    // Rotta Stream
     if (urlPath.startsWith('/stream/')) {
-        // Esempio path: /stream/movie/tt1234567.json
         const parts = urlPath.split('/');
         if (parts.length >= 4) {
             const type = parts[2];
-            const idWithExt = parts[3]; // es. tt1234567.json
+            const idWithExt = parts[3];
             const id = idWithExt.replace('.json', '');
 
             const siti = await getListaSiti();
@@ -84,22 +86,25 @@ const server = http.createServer(async (req, res) => {
                 for (const dominio of siti) {
                     const nomeDominio = dominio.replace(/^https?:\/\//, "").replace(/\/$/, "");
                     streams.push({
-                        name: `Lista Auto\n${nomeDominio}`,
+                        name: `CellarTV\n${nomeDominio}`,
                         title: `Cerca "${titolo}" su ${nomeDominio}`,
                         externalUrl: `${dominio}/?s=${encodeURIComponent(titolo)}`
                     });
                 }
             }
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ streams }));
             return;
         }
     }
 
-    // Fallback per altre rotte
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
+});
+
+server.listen(PORT, () => {
+    console.log(`CellarTV server avviato sulla porta ${PORT}`);
 });
 
 server.listen(PORT, () => {
