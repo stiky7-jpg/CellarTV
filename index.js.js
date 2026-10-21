@@ -1,74 +1,107 @@
-const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
-const axios = require("axios");
+const http = require('http');
+const https = require('https');
 
-// Il link della tua lista automatica su Pastebin
 const PASTEBIN_URL = "https://pastebin.com/raw/2H8u433W";
+const PORT = process.env.PORT || 7000;
 
-// Configurazione del Manifest dell'Add-on (con la proprietà catalogs corretta)
-const manifest = {
-    id: "org.francesco.listapastebin",
-    version: "1.0.1",
-    name: "Mia Lista Automatica (Pastebin)",
-    description: "Legge dinamicamente i domini aggiornati da Pastebin",
-    resources: ["stream"],
-    types: ["movie", "series"],
-    idPrefixes: ["tt"],
-    catalogs: [] // <-- Questa è la riga che mancava e risolve l'errore
-};
+// Funzione helper per scaricare dati via HTTPS
+function fetchUrl(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve(data));
+        }).on('error', err => reject(err));
+    });
+}
 
-const builder = new addonBuilder(manifest);
-
-// Funzione per scaricare i siti dal tuo Pastebin
+// Scarica la lista da Pastebin
 async function getListaSiti() {
     try {
-        const response = await axios.get(PASTEBIN_URL, { timeout: 5000 });
-        const righe = response.data
+        const rawData = await fetchUrl(PASTEBIN_URL);
+        return rawData
             .split(/\r?\n/)
             .map(sito => sito.trim())
             .filter(sito => sito.startsWith("http"));
-        return righe;
     } catch (error) {
         console.error("Errore lettura Pastebin:", error.message);
         return [];
     }
 }
 
-// Funzione per ricavare il titolo tramite Cinemeta
+// Ottiene il titolo da Cinemeta
 async function getTitoloDaImdb(type, imdbId) {
     try {
         const cleanId = imdbId.split(":")[0];
         const url = `https://v3-cinemeta.strem.io/meta/${type}/${cleanId}.json`;
-        const res = await axios.get(url);
-        return res.data?.meta?.name || null;
+        const resData = await fetchUrl(url);
+        const json = JSON.parse(resData);
+        return json?.meta?.name || null;
     } catch {
         return null;
     }
 }
 
-// Gestore delle richieste di Stremio
-builder.defineStreamHandler(async ({ type, id }) => {
-    const siti = await getListaSiti();
-    const titolo = await getTitoloDaImdb(type, id);
+// Crea il server HTTP che risponde direttamente alle chiamate di Stremio
+const server = http.createServer(async (req, res) => {
+    // Imposta gli header CORS per permettere a Stremio di comunicare col server
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', '*');
 
-    if (!titolo || siti.length === 0) {
-        return { streams: [] };
+    const urlPath = req.url.split('?')[0];
+
+    // 1. Risposta al Manifest dell'Add-on
+    if (urlPath === '/manifest.json') {
+        const manifest = {
+            id: "org.francesco.listapastebin",
+            version: "1.0.2",
+            name: "Mia Lista Automatica (Pastebin)",
+            description: "Add-on nativo per lista Pastebin",
+            resources: ["stream"],
+            types: ["movie", "series"],
+            idPrefixes: ["tt"],
+            catalogs: []
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(manifest));
+        return;
     }
 
-    const streams = [];
+    // 2. Risposta alle richieste di Stream
+    if (urlPath.startsWith('/stream/')) {
+        // Esempio path: /stream/movie/tt1234567.json
+        const parts = urlPath.split('/');
+        if (parts.length >= 4) {
+            const type = parts[2];
+            const idWithExt = parts[3]; // es. tt1234567.json
+            const id = idWithExt.replace('.json', '');
 
-    for (const dominio of siti) {
-        const nomeDominio = dominio.replace(/^https?:\/\//, "").replace(/\/$/, "");
-        
-        streams.push({
-            name: `Lista Auto\n${nomeDominio}`,
-            title: `Cerca "${titolo}" su ${nomeDominio}`,
-            externalUrl: `${dominio}/?s=${encodeURIComponent(titolo)}`
-        });
+            const siti = await getListaSiti();
+            const titolo = await getTitoloDaImdb(type, id);
+
+            const streams = [];
+            if (titolo && siti.length > 0) {
+                for (const dominio of siti) {
+                    const nomeDominio = dominio.replace(/^https?:\/\//, "").replace(/\/$/, "");
+                    streams.push({
+                        name: `Lista Auto\n${nomeDominio}`,
+                        title: `Cerca "${titolo}" su ${nomeDominio}`,
+                        externalUrl: `${dominio}/?s=${encodeURIComponent(titolo)}`
+                    });
+                }
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ streams }));
+            return;
+        }
     }
 
-    return { streams });
+    // Fallback per altre rotte
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
 });
 
-// Gestione della porta dinamica fornita da Render (o default 7000)
-const port = process.env.PORT || 7000;
-serveHTTP(builder.getInterface(), { port: port });
+server.listen(PORT, () => {
+    console.log(`Server nativo Stremio avviato sulla porta ${PORT}`);
+});
