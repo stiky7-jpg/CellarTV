@@ -4,15 +4,16 @@ const axios = require("axios");
 // Il link della tua lista automatica su Pastebin
 const PASTEBIN_URL = "https://pastebin.com/raw/2H8u433W";
 
-// Configurazione del Manifest dell'Add-on
+// Configurazione del Manifest dell'Add-on (con la proprietà catalogs corretta)
 const manifest = {
     id: "org.francesco.listapastebin",
-    version: "1.0.0",
+    version: "1.0.1",
     name: "Mia Lista Automatica (Pastebin)",
     description: "Legge dinamicamente i domini aggiornati da Pastebin",
     resources: ["stream"],
     types: ["movie", "series"],
-    idPrefixes: ["tt"]
+    idPrefixes: ["tt"],
+    catalogs: [] // <-- Questa è la riga che mancava e risolve l'errore
 };
 
 const builder = new addonBuilder(manifest);
@@ -65,7 +66,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
         });
     }
 
-    return { streams };
+    return { streams });
 });
 
 // Gestione della porta dinamica fornita da Render (o default 7000)
